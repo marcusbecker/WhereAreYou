@@ -1,6 +1,7 @@
 package br.com.mvbos.way;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.location.Criteria;
@@ -12,6 +13,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.ContactsContract;
 import android.support.v7.app.AppCompatActivity;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
@@ -29,10 +31,8 @@ import java.io.BufferedWriter;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -42,12 +42,15 @@ import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
 
+import br.com.mvbos.way.core.RequestData;
+
 public class ViewLocationActivity extends AppCompatActivity implements LocationListener, HttpRequestHelperResult {
 
     private static final long MIN_SECONDS = 5 * 1;
     private static final float MIN_METERS = 1;
     private static final int RS_REQ_GET_CONTACT = 1;
     private static final int HTTP_SEND_ID = 1;
+    private static final int HTTP_SEND_REQUEST_ID = 2;
 
     private LocationManager locationManager;
     private String preferred;
@@ -56,7 +59,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private boolean send;
 
     private ListView listView;
-    private final List<String> locationsList = new ArrayList<>(30);
+    private final List<RequestData> locationsList = new ArrayList<>(30);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -102,8 +105,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
 
         listView = (ListView) findViewById(R.id.listView);
-        String[] values = new String[]{"No data avaliable"};
-        final ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, new ArrayList<String>(Arrays.asList(values)));
+        //String[] values = new String[]{"No data avaliable"};
+        //final ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, new ArrayList<String>(Arrays.asList(values)));
+        final ArrayAdapter<RequestData> adapter = new ArrayAdapter<RequestData>(this, android.R.layout.simple_list_item_1, new ArrayList<RequestData>());
+
         listView.setAdapter(adapter);
 
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
@@ -111,9 +116,9 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
                 int itemPosition = position;
-                String itemValue = (String) listView.getItemAtPosition(position);
+                //String itemValue = (String) listView.getItemAtPosition(position);
 
-                Toast.makeText(getApplicationContext(), "Position :" + itemPosition + "  ListItem : " + itemValue, Toast.LENGTH_LONG).show();
+                //Toast.makeText(getApplicationContext(), "Position :" + itemPosition + "  ListItem : " + itemValue, Toast.LENGTH_LONG).show();
             }
 
         });
@@ -197,7 +202,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     }
 
 
-    private List<String> getContactNumber(Intent data) {
+    private List<RequestData> getContactNumber(Intent data) {
         Uri resultUri = data.getData();
         Cursor cont = getContentResolver().query(resultUri, null, null, null, null);
 
@@ -205,7 +210,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             return Collections.EMPTY_LIST;
         }
 
-        List<String> lst = new ArrayList<>(5);
+        List<RequestData> lst = new ArrayList<>(5);
 
         String aNumber = null;
 
@@ -221,7 +226,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
             while (numbers.moveToNext()) {
                 aNumber = numbers.getString(numbers.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
-                lst.add(aNumber);
+                RequestData req = new RequestData();
+                req.setToNumber(aNumber);
+
+                lst.add(req);
             }
 
             numbers.close();
@@ -233,7 +241,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     }
 
     private void sendPhoneLocation(Intent data) {
-        List<String> numbers = getContactNumber(data);
+        List<RequestData> numbers = getContactNumber(data);
         if (numbers.isEmpty()) {
             Toast.makeText(this, "Selected contact seems to have no phone numbers ", Toast.LENGTH_LONG).show();
             return;
@@ -241,9 +249,9 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
         try {
             if (send) {
-                makeRequest(numbers);
+                sendMyLocation(numbers);
             } else {
-                makeAsk(numbers);
+                requestContactLocation(numbers);
             }
 
         } catch (Exception e) {
@@ -252,7 +260,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     }
 
 
-    private String makeRequest(List<String> numbers) throws Exception {
+    private String sendMyLocation(List<RequestData> numbers) throws Exception {
 
         final String path = "http://mvbos.com.br/ondetatu/list_location.php";
 
@@ -262,10 +270,21 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         return null;
     }
 
-    private String makeAsk(List<String> numbers) throws Exception {
-        final String path = "http://mvbos.com.br/ondetatu/list_location.php";
+    private String requestContactLocation(List<RequestData> numbers) throws Exception {
+        final String path = "http://192.168.0.6/ondetatu/list_location.php";
+        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        String phoneNumber = tel.getLine1Number();
 
-        HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_SEND_ID, path, null, this);
+        RequestData req = numbers.get(0);
+
+        Map<String, String> param = new HashMap<>(5);
+        param.put("str_0", "reqloc");
+        param.put("str_12", phoneNumber);
+        param.put("str_11", "2215");
+        param.put("str_22", req.getToNumber());
+
+        HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_SEND_REQUEST_ID, path, param, this);
+        httpHelper.setExtraData(req);
         httpHelper.execute();
 
         return null;
@@ -371,8 +390,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     }
 
     @Override
-    public void recieveResult(int id, StringBuilder response) {
+    public void recieveResult(int id, StringBuilder response, Object extraData) {
         JSONObject jsonResp = null;
+
+        RequestData requestData = (RequestData) extraData;
 
         if (id == HTTP_SEND_ID) {
             try {
@@ -384,11 +405,34 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 double latitude = res.getDouble("latitude");
                 double longitude = res.getDouble("longitude");
 
-                locationsList.add(res.toString());
+                /*locationsList.add(res.toString());
                 ArrayAdapter<String> adapter = (ArrayAdapter<String>) listView.getAdapter();
                 adapter.clear();
                 adapter.addAll(locationsList);
-                adapter.notifyDataSetChanged();
+                adapter.notifyDataSetChanged();*/
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+        } else if (id == HTTP_SEND_REQUEST_ID) {
+            try {
+                jsonResp = new JSONObject(response.toString());
+                JSONObject res = jsonResp.getJSONObject("response");
+                boolean success = res.getBoolean("success");
+
+                if (success) {
+                    RequestData reqData = new RequestData();
+
+                    locationsList.add(requestData);
+                    ArrayAdapter<RequestData> adapter = (ArrayAdapter<RequestData>) listView.getAdapter();
+                    adapter.clear();
+                    adapter.addAll(locationsList);
+                    adapter.notifyDataSetChanged();
+
+                } else {
+                    Toast.makeText(this, "Error", Toast.LENGTH_LONG).show();
+                }
 
             } catch (JSONException e) {
                 e.printStackTrace();

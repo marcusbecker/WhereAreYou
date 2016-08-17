@@ -1,10 +1,6 @@
 package br.com.mvbos.way;
 
 import android.os.AsyncTask;
-import android.widget.ArrayAdapter;
-
-import org.json.JSONException;
-import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -15,10 +11,8 @@ import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -33,6 +27,7 @@ public class HttpRequestHelper {
     private final HttpRequestHelperResult result;
     private String method = "POST";
 
+    private Object extraData;
 
     public HttpRequestHelper(int id, String path, Map<String, String> params, HttpRequestHelperResult result) {
         this.id = id;
@@ -62,8 +57,8 @@ public class HttpRequestHelper {
                     url = new URL(path);
 
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setReadTimeout(500);
-                    conn.setConnectTimeout(500);
+                    conn.setReadTimeout(3000);
+                    conn.setConnectTimeout(3000);
                     conn.setRequestMethod(method);
                     conn.setDoInput(true);
                     conn.setDoOutput(true);
@@ -100,7 +95,7 @@ public class HttpRequestHelper {
             protected void onPostExecute(StringBuilder response) {
 
                 if (result != null) {
-                    result.recieveResult(id, response);
+                    result.recieveResult(id, response, extraData);
                 }
             }
 
@@ -123,5 +118,13 @@ public class HttpRequestHelper {
         }
 
         return result.toString();
+    }
+
+    public Object getExtraData() {
+        return extraData;
+    }
+
+    public void setExtraData(Object extraData) {
+        this.extraData = extraData;
     }
 }
