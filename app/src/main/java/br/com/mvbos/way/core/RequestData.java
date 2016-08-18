@@ -1,11 +1,13 @@
 package br.com.mvbos.way.core;
 
+import java.io.Serializable;
+
 /**
  * Created by Marcus Becker on 15/08/2016.
  */
-public class RequestData {
-    enum State {
-        WAITING, ACCEPTED
+public class RequestData implements Serializable {
+    public enum State {
+        WAITING, SEND, ACCEPTED;
     }
 
     private String toNumber;
@@ -73,6 +75,35 @@ public class RequestData {
 
     public void setState(State state) {
         this.state = state;
+    }
+
+    public long getId() {
+        return Long.parseLong(toNumber);
+    }
+
+    public String getFormatedLocation() {
+        return String.format("Latitude %.4f, Longitude %.4f.", getLatitude(), getLongitude());
+    }
+
+    public boolean isReady() {
+        return State.ACCEPTED == state;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        RequestData that = (RequestData) o;
+
+        if (!toNumber.equals(that.toNumber)) return false;
+        return fromNumber.equals(that.fromNumber);
+
+    }
+
+    @Override
+    public int hashCode() {
+        return toNumber.hashCode();
     }
 
     @Override
