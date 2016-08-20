@@ -1,6 +1,7 @@
 package br.com.mvbos.way;
 
 import android.os.AsyncTask;
+import android.support.annotation.NonNull;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -29,6 +30,8 @@ public class HttpRequestHelper {
 
     private Object extraData;
 
+    private boolean assync = true;
+
     public HttpRequestHelper(int id, String path, Map<String, String> params, HttpRequestHelperResult result) {
         this.id = id;
         this.path = path;
@@ -47,61 +50,75 @@ public class HttpRequestHelper {
 
     public void execute() {
 
-        AsyncTask task = new AsyncTask<Object, Void, StringBuilder>() {
-            @Override
-            protected StringBuilder doInBackground(Object[] p) {
-                URL url;
-                StringBuilder sb = new StringBuilder(100);
+        if (assync) {
 
-                try {
-                    url = new URL(path);
+            AsyncTask task = new AsyncTask<Object, Void, StringBuilder>() {
+                @Override
+                protected StringBuilder doInBackground(Object[] p) {
+                    return makeRequest();
+                }
 
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setReadTimeout(3000);
-                    conn.setConnectTimeout(3000);
-                    conn.setRequestMethod(method);
-                    conn.setDoInput(true);
-                    conn.setDoOutput(true);
+                @Override
+                protected void onPostExecute(StringBuilder response) {
 
-                    OutputStream os = conn.getOutputStream();
-                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
-
-                    writer.write(getPostDataString(params));
-
-                    writer.flush();
-                    writer.close();
-                    os.close();
-
-                    int responseCode = conn.getResponseCode();
-
-                    if (responseCode == HttpsURLConnection.HTTP_OK) {
-                        String line;
-                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                        while ((line = br.readLine()) != null) {
-                            sb.append(line);
-                        }
+                    if (result != null) {
+                        result.recieveResult(id, response, extraData);
                     }
-
-                    conn.disconnect();
-
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
 
-                return sb;
+            };
+
+            task.execute(null);
+
+        } else {
+            StringBuilder response = makeRequest();
+            if (result != null) {
+                result.recieveResult(id, response, extraData);
             }
+        }
+    }
 
-            @Override
-            protected void onPostExecute(StringBuilder response) {
+    @NonNull
+    private StringBuilder makeRequest() {
+        URL url;
+        StringBuilder sb = new StringBuilder(100);
 
-                if (result != null) {
-                    result.recieveResult(id, response, extraData);
+        try {
+            url = new URL(path);
+
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setReadTimeout(3000);
+            conn.setConnectTimeout(3000);
+            conn.setRequestMethod(method);
+            conn.setDoInput(true);
+            conn.setDoOutput(true);
+
+            OutputStream os = conn.getOutputStream();
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
+
+            writer.write(getPostDataString(params));
+
+            writer.flush();
+            writer.close();
+
+
+            int responseCode = conn.getResponseCode();
+
+            if (responseCode == HttpsURLConnection.HTTP_OK) {
+                String line;
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                while ((line = br.readLine()) != null) {
+                    sb.append(line);
                 }
             }
+            os.close();
+            conn.disconnect();
 
-        };
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
-        task.execute(null);
+        return sb;
     }
 
 
@@ -118,6 +135,14 @@ public class HttpRequestHelper {
         }
 
         return result.toString();
+    }
+
+    public boolean isAssync() {
+        return assync;
+    }
+
+    public void setAssync(boolean assync) {
+        this.assync = assync;
     }
 
     public Object getExtraData() {

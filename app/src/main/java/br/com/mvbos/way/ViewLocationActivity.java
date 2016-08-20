@@ -11,6 +11,7 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.provider.ContactsContract;
 import android.support.v7.app.AppCompatActivity;
 import android.telephony.TelephonyManager;
@@ -51,9 +52,13 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private static final long MIN_SECONDS = 5 * 1;
     private static final float MIN_METERS = 1;
     private static final int RS_REQ_GET_CONTACT = 1;
-    private static final int HTTP_SEND_ID = 1;
-    private static final int HTTP_SEND_REQUEST_ID = 2;
+
+    private static final int HTTP_ID_SEND = 1;
+    private static final int HTTP_ID_UPDATE = 2;
+    private static final int HTTP_ID_SEND_REQUEST = 3;
+
     public static final String URL_GOOGLE_MAPS = "http://maps.google.com/?q=%s,%s";
+    public static final int DELAY_MILLIS = 5 * 1000;
 
     private LocationManager locationManager;
     private String preferred;
@@ -64,10 +69,48 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private ListView listView;
     private final List<RequestData> locationsList = new ArrayList<>(30);
 
+    //private Intent mServiceIntent;
+
+    private Location myLocation;
+    private String phoneNumber;
+
+    //private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
+    private final String path = "http://192.168.0.5/ondetatu/list_location.php";
+
+    private long startTime = 0;
+
+    Handler timerHandler = new Handler();
+    Runnable timerRunnable = new Runnable() {
+
+        @Override
+        public void run() {
+            Log.i(ViewLocationActivity.class.getName(), "run timer");
+
+            if(myLocation != null) {
+                Map<String, String> param = new HashMap<>(5);
+                param.put("str_0", "uploc");
+                param.put("str_12", phoneNumber);
+                param.put("str_11", "2215");
+                param.put("str_7", String.valueOf(myLocation.getLatitude()));
+                param.put("str_9", String.valueOf(myLocation.getLongitude()));
+
+                HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_UPDATE, path, param, ViewLocationActivity.this);
+                httpHelper.execute();
+            }
+
+            timerHandler.postDelayed(this, DELAY_MILLIS);
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_location);
+
+        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        phoneNumber = tel.getLine1Number();
+
+        //mServiceIntent = new Intent(this, RequestDataService.class);
 
         textLocation = (TextView) findViewById(R.id.txtLatLong);
         textLocation.setText("No location avaliable.");
@@ -126,7 +169,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     protected void onResume() {
         super.onResume();
 
-
         if (locationsList.isEmpty()) {
             List<RequestData> temp = (List<RequestData>) Core.load("list.way", this);
             if (temp != null) {
@@ -137,6 +179,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 adapter.notifyDataSetChanged();
             }
         }
+
+        //startService(mServiceIntent);
 
         try {
 
@@ -170,6 +214,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             Log.i(ViewLocationActivity.class.getName(), "is not Provider Enabled");
         }
 
+        timerHandler.postDelayed(timerRunnable, 0);
     }
 
     @Override
@@ -177,6 +222,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         super.onPause();
 
         try {
+
+            //stopService(mServiceIntent);
 
             Core.save(locationsList, "list.way", this);
 
@@ -186,6 +233,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
         } catch (SecurityException e) {
         }
+
+        timerHandler.removeCallbacks(timerRunnable);
     }
 
     @Override
@@ -204,7 +253,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     @Override
     public boolean onContextItemSelected(MenuItem item) {
 
-        if("Remove".equals(item.getTitle())){
+        if ("Remove".equals(item.getTitle())) {
             locationsList.remove(item.getItemId());
             ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
             adapter.clear();
@@ -254,9 +303,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
     private List<RequestData> getSingleContactNumber(Intent data) {
         List<RequestData> lst = new ArrayList<>(1);
-
-        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-        String phoneNumber = tel.getLine1Number();
 
         Uri contactUri = data.getData();
         String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
@@ -413,17 +459,13 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
 
     private String sendMyLocation(List<RequestData> numbers) throws Exception {
-
-        final String path = "http://mvbos.com.br/ondetatu/list_location.php";
-
-        HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_SEND_ID, path, null, this);
+        HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND, path, null, this);
         httpHelper.execute();
 
         return null;
     }
 
     private String requestContactLocation(List<RequestData> contacts) throws Exception {
-        final String path = "http://192.168.0.5/ondetatu/list_location.php";
         RequestData req = contacts.get(0);
 
         Map<String, String> param = new HashMap<>(5);
@@ -432,7 +474,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         param.put("str_11", "2215");
         param.put("str_22", req.getToNumber());
 
-        HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_SEND_REQUEST_ID, path, param, this);
+        HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND_REQUEST, path, param, this);
         httpHelper.setExtraData(req);
         httpHelper.execute();
 
@@ -511,6 +553,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
     @Override
     public void onLocationChanged(Location location) {
+        myLocation = location;
         String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", location.getLatitude(), location.getLongitude());
         textLocation.setText(s);
     }
@@ -544,7 +587,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
         RequestData requestData = (RequestData) extraData;
 
-        if (id == HTTP_SEND_ID) {
+        if (id == HTTP_ID_SEND) {
             try {
                 jsonResp = new JSONObject(response.toString());
                 JSONObject res = jsonResp.getJSONObject("response");
@@ -564,7 +607,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 e.printStackTrace();
             }
 
-        } else if (id == HTTP_SEND_REQUEST_ID) {
+        } else if (id == HTTP_ID_SEND_REQUEST) {
             try {
                 jsonResp = new JSONObject(response.toString());
                 JSONObject res = jsonResp.getJSONObject("response");
@@ -584,6 +627,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             } catch (JSONException e) {
                 e.printStackTrace();
             }
+
+        } else if (id == HTTP_ID_UPDATE) {
+            //http://localhost/ondetatu/list_location.php?str_0=uploc&str_12=965172801&str_11=2215&str_7=-23.6053561&str_9=-46.6952643
+            Log.i(ViewLocationActivity.class.getName(), response.toString());
         }
     }
 }
