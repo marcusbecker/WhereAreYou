@@ -43,14 +43,16 @@ public class ItemRequestAdapter extends BaseAdapter {
         View view = activity.getLayoutInflater().inflate(R.layout.item_request, null);
         RequestData rd = lst.get(position);
 
+        long to = rd.isForeign() ? rd.getFromNumber() : rd.getToNumber();
+
         TextView v = (TextView) view.findViewById(R.id.lblName);
         v.setText(rd.getToName());
 
         v = (TextView) view.findViewById(R.id.lblState);
-        v.setText(rd.getToNumber() + " - " + rd.getState());
+        v.setText(to + " - " + rd.getState());
 
         v = (TextView) view.findViewById(R.id.lblLocation);
-        v.setText(rd.getFormatedLocation());
+        v.setText(rd.isForeign() ? rd.getLastUpdate().toString() : rd.getFormatedLocation());
 
         return view;
     }

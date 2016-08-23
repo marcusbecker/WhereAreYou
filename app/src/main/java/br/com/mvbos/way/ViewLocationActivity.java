@@ -25,6 +25,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -36,7 +37,9 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,16 +52,18 @@ import br.com.mvbos.way.core.RequestData;
 
 public class ViewLocationActivity extends AppCompatActivity implements LocationListener, HttpRequestHelperResult {
 
-    private static final long MIN_SECONDS = 5 * 1;
+    private static final long MIN_SECONDS = 5 * 2;
     private static final float MIN_METERS = 1;
     private static final int RS_REQ_GET_CONTACT = 1;
 
     private static final int HTTP_ID_SEND = 1;
     private static final int HTTP_ID_UPDATE = 2;
     private static final int HTTP_ID_SEND_REQUEST = 3;
+    private static final int HTTP_ID_ACCEPT = 4;
 
     public static final String URL_GOOGLE_MAPS = "http://maps.google.com/?q=%s,%s";
     public static final int DELAY_MILLIS = 5 * 1000;
+
 
     private LocationManager locationManager;
     private String preferred;
@@ -72,12 +77,13 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     //private Intent mServiceIntent;
 
     private Location myLocation;
+    private Location oldLocation;
     private String phoneNumber;
 
     //private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
-    private final String path = "http://192.168.0.5/ondetatu/list_location.php";
+    private final String path = "http://192.168.0.7/ondetatu/list_location.php";
 
-    private long startTime = 0;
+    //private long startTime = 0;
 
     Handler timerHandler = new Handler();
     Runnable timerRunnable = new Runnable() {
@@ -86,17 +92,24 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         public void run() {
             Log.i(ViewLocationActivity.class.getName(), "run timer");
 
-            if(myLocation != null) {
-                Map<String, String> param = new HashMap<>(5);
-                param.put("str_0", "uploc");
-                param.put("str_12", phoneNumber);
-                param.put("str_11", "2215");
+
+            Map<String, String> param = new HashMap<>(5);
+            param.put("str_0", "upchkreqloc");
+            param.put("str_12", phoneNumber);
+            param.put("str_11", "2215");
+
+            if (myLocation != oldLocation) {
+                oldLocation = myLocation;
                 param.put("str_7", String.valueOf(myLocation.getLatitude()));
                 param.put("str_9", String.valueOf(myLocation.getLongitude()));
 
-                HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_UPDATE, path, param, ViewLocationActivity.this);
-                httpHelper.execute();
+            } else {
+                param.put("str_7", "0");
+                param.put("str_9", "0");
             }
+
+            HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_UPDATE, path, param, ViewLocationActivity.this);
+            httpHelper.execute();
 
             timerHandler.postDelayed(this, DELAY_MILLIS);
         }
@@ -173,10 +186,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             List<RequestData> temp = (List<RequestData>) Core.load("list.way", this);
             if (temp != null) {
                 locationsList.addAll(temp);
-                ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
-                adapter.clear();
-                adapter.addAll(locationsList);
-                adapter.notifyDataSetChanged();
+                updteItemListView(true);
             }
         }
 
@@ -222,20 +232,19 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         super.onPause();
 
         try {
-
             //stopService(mServiceIntent);
-
-            Core.save(locationsList, "list.way", this);
 
             if (locationManager != null) {
                 locationManager.removeUpdates(ViewLocationActivity.this);
             }
 
         } catch (SecurityException e) {
+            e.printStackTrace();
         }
 
         timerHandler.removeCallbacks(timerRunnable);
     }
+
 
     @Override
     public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
@@ -243,8 +252,17 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
         if (R.id.listView == v.getId()) {
             ListView lv = (ListView) v;
-            AdapterView.AdapterContextMenuInfo contextMenuInfo = (AdapterView.AdapterContextMenuInfo) menuInfo;
-            menu.add("Retry");
+
+            AdapterView.AdapterContextMenuInfo info = (AdapterView.AdapterContextMenuInfo) menuInfo;
+            RequestData rq = locationsList.get(info.position);
+
+            if (rq.getState() == RequestData.State.PENDING) {
+                menu.add("Accept");
+
+            } else if (rq.getState() == RequestData.State.ERROR) {
+                menu.add("Retry");
+            }
+
             menu.add("Remove");
         }
 
@@ -255,14 +273,44 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
         if ("Remove".equals(item.getTitle())) {
             locationsList.remove(item.getItemId());
-            ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
-            adapter.clear();
-            adapter.addAll(locationsList);
-            adapter.notifyDataSetChanged();
+            updteItemListView(true);
 
             Core.save(locationsList, "list.way", this);
-        }
 
+        } else if ("Accept".equals(item.getTitle())) {
+            RequestData req = locationsList.get(item.getItemId());
+
+            Map<String, String> param = new HashMap<>(5);
+            param.put("str_0", "acploc");
+            param.put("str_12", String.valueOf(req.getFromNumber()));
+            param.put("str_22", String.valueOf(req.getToNumber()));
+            param.put("str_11", req.getKey());
+
+            HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_ACCEPT, path, param, ViewLocationActivity.this);
+            httpHelper.setExtraData(req);
+            httpHelper.execute();
+
+        } else if ("Retry".equals(item.getTitle())) {
+            RequestData req = locationsList.get(item.getItemId());
+
+            if (req.getState() == RequestData.State.ERROR) {
+
+                try {
+                    if (req.getType() == RequestData.Type.REQUEST) {
+                        req.setState(RequestData.State.WAITING);
+                        updteItemListView(false);
+
+                        RequestData[] arr = {req};
+                        sendRequestContactLocation(Arrays.asList(arr));
+
+                    } else if (req.getType() == RequestData.Type.SEND) {
+                    }
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
 
         return super.onContextItemSelected(item);
     }
@@ -325,8 +373,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         req.setFromNumber(phoneNumber);
 
         lst.add(req);
-
-
         return lst;
     }
 
@@ -403,6 +449,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
                 RequestData req = new RequestData();
 
+                req.setType(send ? RequestData.Type.SEND : RequestData.Type.REQUEST);
+
                 req.setToName(name);
                 req.setToNumber(aNumber);
                 req.setFromNumber(phoneNumber);
@@ -425,20 +473,13 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             return;
         }
 
-
-        /*int idx = locationsList.indexOf(contacts.get(0));
-
-        if (idx == -1) {
-            return;
-        }*/
-
         try {
             addItemList(contacts.get(0));
 
             if (send) {
                 sendMyLocation(contacts);
             } else {
-                requestContactLocation(contacts);
+                sendRequestContactLocation(contacts);
             }
 
         } catch (Exception e) {
@@ -449,8 +490,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private void addItemList(RequestData requestData) {
         locationsList.add(requestData);
         ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
-        //adapter.clear();
-        //adapter.addAll(locationsList);
         adapter.add(requestData);
         adapter.notifyDataSetChanged();
 
@@ -465,14 +504,14 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         return null;
     }
 
-    private String requestContactLocation(List<RequestData> contacts) throws Exception {
+    private String sendRequestContactLocation(List<RequestData> contacts) throws Exception {
         RequestData req = contacts.get(0);
 
         Map<String, String> param = new HashMap<>(5);
         param.put("str_0", "reqloc");
-        param.put("str_12", req.getFromNumber());
+        param.put("str_12", String.valueOf(req.getFromNumber()));
         param.put("str_11", "2215");
-        param.put("str_22", req.getToNumber());
+        param.put("str_22", String.valueOf(req.getToNumber()));
 
         HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND_REQUEST, path, param, this);
         httpHelper.setExtraData(req);
@@ -537,8 +576,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                     e.printStackTrace();
                 }
 
-
                 return response.toString();
+
             }
 
         }.execute(params);
@@ -554,6 +593,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     @Override
     public void onLocationChanged(Location location) {
         myLocation = location;
+        oldLocation = null;
         String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", location.getLatitude(), location.getLongitude());
         textLocation.setText(s);
     }
@@ -577,15 +617,24 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     @Override
     public void onStop() {
         super.onStop();
-
-
+        Core.save(locationsList, "list.way", this);
     }
 
     @Override
-    public void recieveResult(int id, StringBuilder response, Object extraData) {
+    public void recieveResult(int id, StringBuilder response, Object extraData, Exception error) {
         JSONObject jsonResp = null;
 
         RequestData requestData = (RequestData) extraData;
+
+
+        if (error != null) {
+            if (extraData != null) {
+                ((RequestData) extraData).setState(RequestData.State.ERROR);
+                updteItemListView(false);
+            }
+
+            return;
+        }
 
         if (id == HTTP_ID_SEND) {
             try {
@@ -597,11 +646,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 double latitude = res.getDouble("latitude");
                 double longitude = res.getDouble("longitude");
 
-                /*locationsList.add(res.toString());
-                ArrayAdapter<String> adapter = (ArrayAdapter<String>) listView.getAdapter();
-                adapter.clear();
-                adapter.addAll(locationsList);
-                adapter.notifyDataSetChanged();*/
+                //updteItemListView(true);
 
             } catch (JSONException e) {
                 e.printStackTrace();
@@ -614,23 +659,115 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 boolean success = res.getBoolean("success");
 
                 if (success) {
-                    int idx = locationsList.indexOf(requestData);
-                    if (idx > -1) {
-                        locationsList.get(idx).setState(RequestData.State.SEND);
-                        ((ItemRequestAdapter) listView.getAdapter()).notifyDataSetChanged();
-                    }
+                    requestData.setState(RequestData.State.SEND);
 
                 } else {
+                    requestData.setState(RequestData.State.ERROR);
                     Toast.makeText(this, "Error", Toast.LENGTH_LONG).show();
                 }
+
+                updteItemListView(false);
 
             } catch (JSONException e) {
                 e.printStackTrace();
             }
 
         } else if (id == HTTP_ID_UPDATE) {
-            //http://localhost/ondetatu/list_location.php?str_0=uploc&str_12=965172801&str_11=2215&str_7=-23.6053561&str_9=-46.6952643
-            Log.i(ViewLocationActivity.class.getName(), response.toString());
+            //Log.i(ViewLocationActivity.class.getName(), response.toString());
+
+            boolean update = false;
+
+            try {
+                jsonResp = new JSONObject(response.toString());
+                JSONArray resp = jsonResp.getJSONArray("response");
+
+                for (int i = 0; i < resp.length(); i++) {
+                    JSONObject line = resp.getJSONObject(i);
+
+                    for (RequestData r : locationsList) {
+                        if (r.getToNumber() == line.getLong("from")) {
+
+                            update = true;
+
+                            r.setLatitude(line.getDouble("latitude"));
+                            r.setLongitude(line.getDouble("longitude"));
+                            //r.setState(RequestData.State.ACCEPTED);
+
+                            break;
+                        }
+                    }
+                }
+
+
+                JSONArray reqs = jsonResp.getJSONArray("requets");
+
+                for (int i = 0; i < reqs.length(); i++) {
+                    update = true;
+                    JSONObject line = reqs.getJSONObject(i);
+
+                    RequestData temp = new RequestData();
+                    temp.setForeign(true);
+                    temp.setState(RequestData.State.PENDING);
+                    temp.setKey(line.getString("key"));
+                    temp.setFromNumber(line.getString("from"));
+                    temp.setToNumber(phoneNumber);
+
+                    int idx = locationsList.indexOf(temp);
+
+                    if (idx == -1) {
+                        locationsList.add(temp);
+                    } else {
+                        temp = locationsList.get(idx);
+                        temp.setLastUpdate(new Date());
+                    }
+                }
+
+
+                if (update) {
+                    updteItemListView(true);
+                }
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+        } else if (id == HTTP_ID_ACCEPT) {
+            //echo '{"response": {"success": true, "key":' . $key . ', "message": ""}}';
+
+            try {
+                jsonResp = new JSONObject(response.toString());
+                JSONObject res = jsonResp.getJSONObject("response");
+                boolean success = res.getBoolean("success");
+
+                if (success) {
+                    int idx = locationsList.indexOf(requestData);
+                    if (idx > -1) {
+                        locationsList.get(idx).setState(RequestData.State.ACCEPTED);
+                        updteItemListView(false);
+                    }
+
+                } else {
+                    Toast.makeText(this, "Error to accept request.", Toast.LENGTH_LONG).show();
+                }
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
         }
     }
+
+
+    private void updteItemListView(boolean full) {
+        if (full) {
+            ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
+            adapter.clear();
+            adapter.addAll(locationsList);
+            adapter.notifyDataSetChanged();
+
+        } else {
+            ((ItemRequestAdapter) listView.getAdapter()).notifyDataSetChanged();
+        }
+    }
+
 }

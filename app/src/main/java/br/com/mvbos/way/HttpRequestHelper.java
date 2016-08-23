@@ -29,6 +29,7 @@ public class HttpRequestHelper {
     private String method = "POST";
 
     private Object extraData;
+    private Exception error;
 
     private boolean assync = true;
 
@@ -62,7 +63,7 @@ public class HttpRequestHelper {
                 protected void onPostExecute(StringBuilder response) {
 
                     if (result != null) {
-                        result.recieveResult(id, response, extraData);
+                        result.recieveResult(id, response, extraData, error);
                     }
                 }
 
@@ -73,7 +74,7 @@ public class HttpRequestHelper {
         } else {
             StringBuilder response = makeRequest();
             if (result != null) {
-                result.recieveResult(id, response, extraData);
+                result.recieveResult(id, response, extraData, error);
             }
         }
     }
@@ -115,6 +116,7 @@ public class HttpRequestHelper {
             conn.disconnect();
 
         } catch (Exception e) {
+            this.error = e;
             e.printStackTrace();
         }
 

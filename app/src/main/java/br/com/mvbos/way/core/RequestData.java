@@ -1,17 +1,22 @@
 package br.com.mvbos.way.core;
 
 import java.io.Serializable;
+import java.util.Date;
 
 /**
  * Created by Marcus Becker on 15/08/2016.
  */
 public class RequestData implements Serializable {
     public enum State {
-        WAITING, SEND, ACCEPTED;
+        WAITING, SEND, ACCEPTED, PENDING, ERROR;
     }
 
-    private String toNumber;
-    private String fromNumber;
+    public enum Type {
+        NONE, SEND, REQUEST;
+    }
+
+    private long toNumber;
+    private long fromNumber;
 
     private String toName;
     private String fromName;
@@ -19,22 +24,41 @@ public class RequestData implements Serializable {
     private double latitude;
     private double longitude;
 
+    private String key;
+    private boolean foreign;
+
+    private Date lastUpdate = new Date();
+
     private State state = State.WAITING;
 
-    public String getToNumber() {
+    private Type type = Type.NONE;
+
+    public long getToNumber() {
         return toNumber;
     }
 
     public void setToNumber(String toNumber) {
+        this.toNumber = toNumber(toNumber);
+    }
+
+    public void setToNumber(long toNumber) {
         this.toNumber = toNumber;
     }
 
-    public String getFromNumber() {
+    public long getFromNumber() {
         return fromNumber;
     }
 
-    public void setFromNumber(String fromNumber) {
+    public void setFromNumber(long fromNumber) {
         this.fromNumber = fromNumber;
+    }
+
+    public void setFromNumber(String fromNumber) {
+        this.fromNumber = toNumber(fromNumber);
+    }
+
+    private long toNumber(String number) {
+        return Long.parseLong(number.replaceAll("[^0-9]", ""));
     }
 
     public String getToName() {
@@ -77,8 +101,40 @@ public class RequestData implements Serializable {
         this.state = state;
     }
 
+    public Type getType() {
+        return type;
+    }
+
+    public void setType(Type type) {
+        this.type = type;
+    }
+
+    public String getKey() {
+        return key;
+    }
+
+    public void setKey(String key) {
+        this.key = key;
+    }
+
+    public boolean isForeign() {
+        return foreign;
+    }
+
+    public void setForeign(boolean foreign) {
+        this.foreign = foreign;
+    }
+
+    public Date getLastUpdate() {
+        return lastUpdate;
+    }
+
+    public void setLastUpdate(Date lastUpdate) {
+        this.lastUpdate = lastUpdate;
+    }
+
     public long getId() {
-        return Long.parseLong(toNumber);
+        return toNumber;
     }
 
     public String getFormatedLocation() {
@@ -96,14 +152,13 @@ public class RequestData implements Serializable {
 
         RequestData that = (RequestData) o;
 
-        if (!toNumber.equals(that.toNumber)) return false;
-        return fromNumber.equals(that.fromNumber);
+        return toNumber == that.toNumber;
 
     }
 
     @Override
     public int hashCode() {
-        return toNumber.hashCode();
+        return (int) (toNumber ^ (toNumber >>> 32));
     }
 
     @Override
