@@ -8,7 +8,7 @@ import java.util.Date;
  */
 public class RequestData implements Serializable {
     public enum State {
-        WAITING, SEND, ACCEPTED, PENDING, ERROR;
+        WAITING, SEND, ACCEPTED, PENDING, ERROR, SYNC;
     }
 
     public enum Type {
@@ -142,7 +142,7 @@ public class RequestData implements Serializable {
     }
 
     public boolean isReady() {
-        return State.ACCEPTED == state;
+        return State.SYNC == state;
     }
 
     @Override

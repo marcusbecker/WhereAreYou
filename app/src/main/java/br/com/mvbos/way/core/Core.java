@@ -7,16 +7,13 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.util.List;
-
-import br.com.mvbos.way.ViewLocationActivity;
 
 /**
  * Created by Marcus Becker on 17/08/2016.
  */
 public class Core {
 
-    public static boolean save(Object obj, String fileName, Activity context) {
+    public static boolean save(Way obj, String fileName, Activity context) {
         try {
             FileOutputStream fos = context.openFileOutput(fileName, Context.MODE_PRIVATE);
             ObjectOutputStream os = new ObjectOutputStream(fos);
@@ -33,11 +30,11 @@ public class Core {
         return false;
     }
 
-    public static Object load(String fileName, Activity context) {
+    public static Way load(String fileName, Activity context) {
         try {
             FileInputStream fis = context.openFileInput(fileName);
             ObjectInputStream is = new ObjectInputStream(fis);
-            List<RequestData> simpleClass = (List<RequestData>) is.readObject();
+            Way simpleClass = (Way) is.readObject();
             is.close();
             fis.close();
 

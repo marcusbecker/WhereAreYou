@@ -1,7 +1,6 @@
 package br.com.mvbos.way;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.location.Criteria;
@@ -9,12 +8,10 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.provider.ContactsContract;
 import android.support.v7.app.AppCompatActivity;
-import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.MenuItem;
@@ -29,13 +26,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,11 +34,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.net.ssl.HttpsURLConnection;
-
 import br.com.mvbos.way.core.Core;
 import br.com.mvbos.way.core.ItemRequestAdapter;
 import br.com.mvbos.way.core.RequestData;
+import br.com.mvbos.way.core.Way;
 
 public class ViewLocationActivity extends AppCompatActivity implements LocationListener, HttpRequestHelperResult {
 
@@ -62,7 +51,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private static final int HTTP_ID_ACCEPT = 4;
 
     public static final String URL_GOOGLE_MAPS = "http://maps.google.com/?q=%s,%s";
-    public static final int DELAY_MILLIS = 5 * 1000;
+    public static final int DELAY_MILLIS = 75 * 1000;
 
 
     private LocationManager locationManager;
@@ -70,6 +59,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
     private TextView textLocation;
     private boolean send;
+
+    private Way way;
 
     private ListView listView;
     private final List<RequestData> locationsList = new ArrayList<>(30);
@@ -80,8 +71,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private Location oldLocation;
     private String phoneNumber;
 
-    //private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
-    private final String path = "http://192.168.0.7/ondetatu/list_location.php";
+    private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
+    //private final String path = "http://192.168.0.7/ondetatu/list_location.php";
 
     //private long startTime = 0;
 
@@ -97,6 +88,11 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             param.put("str_0", "upchkreqloc");
             param.put("str_12", phoneNumber);
             param.put("str_11", "2215");
+
+            if (myLocation == null) {
+                //locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, null);
+                myLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            }
 
             if (myLocation != oldLocation) {
                 oldLocation = myLocation;
@@ -120,8 +116,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_location);
 
-        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-        phoneNumber = tel.getLine1Number();
+        way = (Way) getIntent().getSerializableExtra("way");
+        phoneNumber = way.getNumber();
 
         //mServiceIntent = new Intent(this, RequestDataService.class);
 
@@ -172,6 +168,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 RequestData requestData = locationsList.get(position);
                 if (requestData.isReady()) {
                     openMap(requestData.getLatitude(), requestData.getLongitude());
+                } else {
+                    ViewLocationActivity.this.openContextMenu(view);
                 }
             }
 
@@ -182,8 +180,14 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     protected void onResume() {
         super.onResume();
 
-        if (locationsList.isEmpty()) {
-            List<RequestData> temp = (List<RequestData>) Core.load("list.way", this);
+        if (locationsList.isEmpty() || way == null) {
+            if (way == null)
+                way = Core.load("list.way", this);
+
+            List<RequestData> temp = way.getRequestDatas();
+
+            phoneNumber = way.getNumber();
+
             if (temp != null) {
                 locationsList.addAll(temp);
                 updteItemListView(true);
@@ -235,7 +239,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             //stopService(mServiceIntent);
 
             if (locationManager != null) {
-                locationManager.removeUpdates(ViewLocationActivity.this);
+                locationManager.removeUpdates(this);
             }
 
         } catch (SecurityException e) {
@@ -275,7 +279,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             locationsList.remove(item.getItemId());
             updteItemListView(true);
 
-            Core.save(locationsList, "list.way", this);
+            way.setRequestDatas(locationsList);
+            Core.save(way, "list.way", this);
 
         } else if ("Accept".equals(item.getTitle())) {
             RequestData req = locationsList.get(item.getItemId());
@@ -286,7 +291,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             param.put("str_22", String.valueOf(req.getToNumber()));
             param.put("str_11", req.getKey());
 
-            HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_ACCEPT, path, param, ViewLocationActivity.this);
+            HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_ACCEPT, path, param, this);
             httpHelper.setExtraData(req);
             httpHelper.execute();
 
@@ -379,9 +384,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private List<RequestData> getAllContactNumber(Intent data) {
         List<RequestData> lst = new ArrayList<>(5);
 
-        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-        String phoneNumber = tel.getLine1Number();
-
         Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
         //Uri uri = data.getData();
         String[] projection = new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -418,9 +420,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private List<RequestData> getContactNumber(Intent data) {
         Uri resultUri = data.getData();
         Cursor cont = getContentResolver().query(resultUri, null, null, null, null);
-
-        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-        String phoneNumber = tel.getLine1Number();
 
         if (!cont.moveToNext()) {
             return Collections.EMPTY_LIST;
@@ -488,12 +487,16 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     }
 
     private void addItemList(RequestData requestData) {
-        locationsList.add(requestData);
-        ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
-        adapter.add(requestData);
-        adapter.notifyDataSetChanged();
+        if (!locationsList.contains(requestData)) {
 
-        Core.save(locationsList, "list.way", this);
+            locationsList.add(requestData);
+            ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
+            adapter.add(requestData);
+            adapter.notifyDataSetChanged();
+
+            way.setRequestDatas(locationsList);
+            Core.save(way, "list.way", this);
+        }
     }
 
 
@@ -516,71 +519,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND_REQUEST, path, param, this);
         httpHelper.setExtraData(req);
         httpHelper.execute();
-
-        return null;
-    }
-
-    private static String makeResponse(final String path, Map params) throws Exception {
-
-        if (params == null)
-            params = Collections.EMPTY_MAP;
-
-        new AsyncTask<Map, Void, String>() {
-            @Override
-            protected String doInBackground(Map... param) {
-                URL url;
-                String response = "";
-
-                try {
-                    url = new URL(path);
-
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setReadTimeout(500);
-                    conn.setConnectTimeout(500);
-                    conn.setRequestMethod("POST");
-                    conn.setDoInput(true);
-                    conn.setDoOutput(true);
-
-
-                    OutputStream os = conn.getOutputStream();
-                    BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, "UTF-8"));
-
-                    //writer.write(getPostDataString(postDataParams));
-
-                    writer.flush();
-                    writer.close();
-                    os.close();
-
-                    int responseCode = conn.getResponseCode();
-
-                    if (responseCode == HttpsURLConnection.HTTP_OK) {
-                        String line;
-                        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                        while ((line = br.readLine()) != null) {
-                            response += line;
-                        }
-
-                        JSONObject jsonResp = new JSONObject(response);
-                        JSONObject res = jsonResp.getJSONObject("response");
-                        String from = res.getString("from");
-
-                        String to = res.getString("to");
-                        double latitude = res.getDouble("latitude");
-                        double longitude = res.getDouble("longitude");
-
-
-                    } else {
-                        response = "";
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-                return response.toString();
-
-            }
-
-        }.execute(params);
 
         return null;
     }
@@ -617,7 +555,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     @Override
     public void onStop() {
         super.onStop();
-        Core.save(locationsList, "list.way", this);
+        way.setRequestDatas(locationsList);
+        Core.save(way, "list.way", this);
     }
 
     @Override
@@ -691,7 +630,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
                             r.setLatitude(line.getDouble("latitude"));
                             r.setLongitude(line.getDouble("longitude"));
-                            //r.setState(RequestData.State.ACCEPTED);
+                            r.setState(RequestData.State.SYNC);
 
                             break;
                         }
@@ -744,6 +683,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                     if (idx > -1) {
                         locationsList.get(idx).setState(RequestData.State.ACCEPTED);
                         updteItemListView(false);
+
+                        oldLocation = null;
                     }
 
                 } else {
@@ -769,5 +710,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             ((ItemRequestAdapter) listView.getAdapter()).notifyDataSetChanged();
         }
     }
+
 
 }
