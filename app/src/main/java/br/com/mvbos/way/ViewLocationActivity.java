@@ -41,8 +41,8 @@ import br.com.mvbos.way.core.Way;
 
 public class ViewLocationActivity extends AppCompatActivity implements LocationListener, HttpRequestHelperResult {
 
-    private static final long MIN_SECONDS = 5 * 2;
-    private static final float MIN_METERS = 1;
+    private static final long MIN_SECONDS = 5 * 60 * 1000;
+    private static final float MIN_METERS = 0; // 10000;
     private static final int RS_REQ_GET_CONTACT = 1;
 
     private static final int HTTP_ID_SEND = 1;
@@ -71,6 +71,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     private Location oldLocation;
     private String phoneNumber;
 
+    private RequestData requestDataSelected; //item selected on context menu
+
     private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
     //private final String path = "http://192.168.0.7/ondetatu/list_location.php";
 
@@ -91,7 +93,20 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
             if (myLocation == null) {
                 //locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, null);
-                myLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                myLocation = locationManager.getLastKnownLocation(preferred);
+
+                if (myLocation == null) {
+
+                    try {
+                        locationManager.requestSingleUpdate(preferred, ViewLocationActivity.this, null);
+                        // Waiting for the update
+                        //while (myLocation == null) ;
+
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
+                }
             }
 
             if (myLocation != oldLocation) {
@@ -201,15 +216,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             if (locationManager == null) {
                 locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
-                if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    //Toast.makeText(MainActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
-                    //Log.i(MainActivity.class.getName(), "is not Provider Enabled");
-                }
-
-                for (String s : locationManager.getAllProviders()) {
-                    //Log.i(MainActivity.class.getName(), "Provider " + s);
-                }
-
                 Criteria c = new Criteria();
                 c.setAccuracy(Criteria.ACCURACY_FINE);
                 preferred = locationManager.getBestProvider(c, true);
@@ -217,10 +223,16 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 if (preferred == null)
                     preferred = locationManager.GPS_PROVIDER;
 
-                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, ViewLocationActivity.this);
+                if (!locationManager.isProviderEnabled(preferred)) {
+                    Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
+                }
+
+                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, this);
+                myLocation = locationManager.getLastKnownLocation(preferred);
 
             } else {
-                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, ViewLocationActivity.this);
+                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, this);
+                myLocation = locationManager.getLastKnownLocation(preferred);
             }
 
         } catch (SecurityException e) {
@@ -258,12 +270,12 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             ListView lv = (ListView) v;
 
             AdapterView.AdapterContextMenuInfo info = (AdapterView.AdapterContextMenuInfo) menuInfo;
-            RequestData rq = locationsList.get(info.position);
+            requestDataSelected = locationsList.get(info.position);
 
-            if (rq.getState() == RequestData.State.PENDING) {
+            if (requestDataSelected.getState() == RequestData.State.PENDING) {
                 menu.add("Accept");
 
-            } else if (rq.getState() == RequestData.State.ERROR) {
+            } else if (requestDataSelected.getState() == RequestData.State.ERROR) {
                 menu.add("Retry");
             }
 
@@ -276,39 +288,37 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     public boolean onContextItemSelected(MenuItem item) {
 
         if ("Remove".equals(item.getTitle())) {
-            locationsList.remove(item.getItemId());
+            locationsList.remove(requestDataSelected);
             updteItemListView(true);
 
             way.setRequestDatas(locationsList);
             Core.save(way, "list.way", this);
 
         } else if ("Accept".equals(item.getTitle())) {
-            RequestData req = locationsList.get(item.getItemId());
 
             Map<String, String> param = new HashMap<>(5);
             param.put("str_0", "acploc");
-            param.put("str_12", String.valueOf(req.getFromNumber()));
-            param.put("str_22", String.valueOf(req.getToNumber()));
-            param.put("str_11", req.getKey());
+            param.put("str_12", String.valueOf(requestDataSelected.getFromNumber()));
+            param.put("str_22", String.valueOf(requestDataSelected.getToNumber()));
+            param.put("str_11", requestDataSelected.getKey());
 
             HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_ACCEPT, path, param, this);
-            httpHelper.setExtraData(req);
+            httpHelper.setExtraData(requestDataSelected);
             httpHelper.execute();
 
         } else if ("Retry".equals(item.getTitle())) {
-            RequestData req = locationsList.get(item.getItemId());
 
-            if (req.getState() == RequestData.State.ERROR) {
+            if (requestDataSelected.getState() == RequestData.State.ERROR) {
 
                 try {
-                    if (req.getType() == RequestData.Type.REQUEST) {
-                        req.setState(RequestData.State.WAITING);
+                    if (requestDataSelected.getType() == RequestData.Type.REQUEST) {
+                        requestDataSelected.setState(RequestData.State.WAITING);
                         updteItemListView(false);
 
-                        RequestData[] arr = {req};
+                        RequestData[] arr = {requestDataSelected};
                         sendRequestContactLocation(Arrays.asList(arr));
 
-                    } else if (req.getType() == RequestData.Type.SEND) {
+                    } else if (requestDataSelected.getType() == RequestData.Type.SEND) {
                     }
 
                 } catch (Exception e) {

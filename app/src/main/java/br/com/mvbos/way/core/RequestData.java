@@ -152,13 +152,16 @@ public class RequestData implements Serializable {
 
         RequestData that = (RequestData) o;
 
-        return toNumber == that.toNumber;
+        if (toNumber != that.toNumber) return false;
+        return fromNumber == that.fromNumber;
 
     }
 
     @Override
     public int hashCode() {
-        return (int) (toNumber ^ (toNumber >>> 32));
+        int result = (int) (toNumber ^ (toNumber >>> 32));
+        result = 31 * result + (int) (fromNumber ^ (fromNumber >>> 32));
+        return result;
     }
 
     @Override
