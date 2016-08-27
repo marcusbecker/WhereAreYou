@@ -3,13 +3,11 @@ package br.com.mvbos.way;
 import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
-import android.location.Criteria;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.PersistableBundle;
 import android.provider.ContactsContract;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -22,10 +20,18 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesUtil;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,7 +45,7 @@ import br.com.mvbos.way.core.ItemRequestAdapter;
 import br.com.mvbos.way.core.RequestData;
 import br.com.mvbos.way.core.Way;
 
-public class ViewLocationActivity extends AppCompatActivity implements LocationListener, HttpRequestHelperResult {
+public class ViewLocationActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener, HttpRequestHelperResult {
 
     private static final long MIN_SECONDS = 5 * 60 * 1000;
     private static final float MIN_METERS = 0; // 10000;
@@ -52,9 +58,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
     public static final String URL_GOOGLE_MAPS = "http://maps.google.com/?q=%s,%s";
     public static final int DELAY_MILLIS = 75 * 1000;
+    private static final String REQUESTING_LOCATION_UPDATES_KEY = "REQUESTING_LOCATION_UPDATES_KEY";
+    private static final String LOCATION_KEY = "LOCATION_KEY";
+    private static final String LAST_UPDATED_TIME_STRING_KEY = "LAST_UPDATED_TIME_STRING_KEY";
 
-
-    private LocationManager locationManager;
     private String preferred;
 
     private TextView textLocation;
@@ -92,21 +99,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             param.put("str_11", "2215");
 
             if (myLocation == null) {
-                //locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, null);
-                myLocation = locationManager.getLastKnownLocation(preferred);
-
-                if (myLocation == null) {
-
-                    try {
-                        locationManager.requestSingleUpdate(preferred, ViewLocationActivity.this, null);
-                        // Waiting for the update
-                        //while (myLocation == null) ;
-
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-
-                }
+                myLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
             }
 
             if (myLocation != oldLocation) {
@@ -126,15 +119,66 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         }
     };
 
+    private boolean mRequestingLocationUpdates;
+    private GoogleApiClient mGoogleApiClient;
+    private LocationRequest mLocationRequest;
+    private String mLastUpdateTime;
+
+    private void startLocationUpdates() {
+        mLocationRequest = LocationRequest.create()
+                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+                .setInterval(MIN_SECONDS)
+                .setFastestInterval(1 * 1000);
+
+        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+    }
+
+    private void stopLocationUpdates() {
+        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+    }
+
+    private void updateUI() {
+        oldLocation = null;
+        String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", myLocation.getLatitude(), myLocation.getLongitude());
+        textLocation.setText(s);
+    }
+
+    private void updateValuesFromBundle(Bundle savedInstanceState) {
+        if (savedInstanceState != null) {
+            if (savedInstanceState.keySet().contains(REQUESTING_LOCATION_UPDATES_KEY)) {
+                mRequestingLocationUpdates = savedInstanceState.getBoolean(REQUESTING_LOCATION_UPDATES_KEY);
+            }
+
+            if (savedInstanceState.keySet().contains(LOCATION_KEY)) {
+                myLocation = savedInstanceState.getParcelable(LOCATION_KEY);
+            }
+
+            if (savedInstanceState.keySet().contains(LAST_UPDATED_TIME_STRING_KEY)) {
+                mLastUpdateTime = savedInstanceState.getString(LAST_UPDATED_TIME_STRING_KEY);
+            }
+
+            updateUI();
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_location);
 
+
+        updateValuesFromBundle(savedInstanceState);
+
+        if (mGoogleApiClient == null) {
+            mGoogleApiClient = new GoogleApiClient.Builder(this)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
+                    .build();
+        }
+
         way = (Way) getIntent().getSerializableExtra("way");
         phoneNumber = way.getNumber();
-
-        //mServiceIntent = new Intent(this, RequestDataService.class);
 
         textLocation = (TextView) findViewById(R.id.txtLatLong);
         textLocation.setText("No location avaliable.");
@@ -143,9 +187,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (locationManager != null) {
-                    Location location = locationManager.getLastKnownLocation(preferred);
-                    openMap(location.getLatitude(), location.getLongitude());
+                if (myLocation != null) {
+                    openMap(myLocation.getLatitude(), myLocation.getLongitude());
+                } else {
+                    Toast.makeText(ViewLocationActivity.this, "Sorry, location is unknown.", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -195,6 +240,13 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     protected void onResume() {
         super.onResume();
 
+        if (mGoogleApiClient.isConnected() && !mRequestingLocationUpdates) {
+            startLocationUpdates();
+
+        } else if (!mGoogleApiClient.isConnected()) {
+            Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
+        }
+
         if (locationsList.isEmpty() || way == null) {
             if (way == null)
                 way = Core.load("list.way", this);
@@ -209,61 +261,29 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             }
         }
 
-        //startService(mServiceIntent);
-
-        try {
-
-            if (locationManager == null) {
-                locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
-                Criteria c = new Criteria();
-                c.setAccuracy(Criteria.ACCURACY_FINE);
-                preferred = locationManager.getBestProvider(c, true);
-
-                if (preferred == null)
-                    preferred = locationManager.GPS_PROVIDER;
-
-                if (!locationManager.isProviderEnabled(preferred)) {
-                    Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
-                }
-
-                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, this);
-                myLocation = locationManager.getLastKnownLocation(preferred);
-
-            } else {
-                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, this);
-                myLocation = locationManager.getLastKnownLocation(preferred);
-            }
-
-        } catch (SecurityException e) {
-            e.printStackTrace();
-            Log.i(ViewLocationActivity.class.getName(), "is not Provider Enabled");
-        }
-
         timerHandler.postDelayed(timerRunnable, 0);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-
-        try {
-            //stopService(mServiceIntent);
-
-            if (locationManager != null) {
-                locationManager.removeUpdates(this);
-            }
-
-        } catch (SecurityException e) {
-            e.printStackTrace();
-        }
-
+        stopLocationUpdates();
         timerHandler.removeCallbacks(timerRunnable);
     }
 
+    @Override
+    public void onSaveInstanceState(Bundle savedInstanceState, PersistableBundle
+            outPersistentState) {
+        savedInstanceState.putBoolean(REQUESTING_LOCATION_UPDATES_KEY, mRequestingLocationUpdates);
+        savedInstanceState.putParcelable(LOCATION_KEY, myLocation);
+        savedInstanceState.putString(LAST_UPDATED_TIME_STRING_KEY, mLastUpdateTime);
+
+        super.onSaveInstanceState(savedInstanceState, outPersistentState);
+    }
 
     @Override
-    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo
+            menuInfo) {
         super.onCreateContextMenu(menu, v, menuInfo);
 
         if (R.id.listView == v.getId()) {
@@ -283,6 +303,28 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         }
 
     }
+
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        if (mRequestingLocationUpdates) {
+            startLocationUpdates();
+        }
+        //myLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+    }
+
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        myLocation = location;
+        mLastUpdateTime = DateFormat.getTimeInstance().format(new Date());
+        updateUI();
+    }
+
 
     @Override
     public boolean onContextItemSelected(MenuItem item) {
@@ -533,38 +575,26 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         return null;
     }
 
-
-    @Override
-    public void onStatusChanged(String provider, int status, Bundle extras) {
-    }
-
-    @Override
-    public void onLocationChanged(Location location) {
-        myLocation = location;
-        oldLocation = null;
-        String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", location.getLatitude(), location.getLongitude());
-        textLocation.setText(s);
-    }
-
-    @Override
-    public void onProviderEnabled(String provider) {
-
-    }
-
-    @Override
-    public void onProviderDisabled(String provider) {
-
-    }
-
     @Override
     public void onStart() {
         super.onStart();
 
+        boolean a;
+        int status = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
+        if (ConnectionResult.SUCCESS == status) {
+            a = true;
+        } else {
+            GooglePlayServicesUtil.getErrorDialog(status, this, 0).show();
+            a = false;
+        }
+
+        mGoogleApiClient.connect();
     }
 
     @Override
     public void onStop() {
         super.onStop();
+        mGoogleApiClient.disconnect();
         way.setRequestDatas(locationsList);
         Core.save(way, "list.way", this);
     }
@@ -708,7 +738,6 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         }
     }
 
-
     private void updteItemListView(boolean full) {
         if (full) {
             ItemRequestAdapter adapter = (ItemRequestAdapter) listView.getAdapter();
@@ -721,5 +750,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         }
     }
 
-
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        System.out.println(connectionResult);
+    }
 }
