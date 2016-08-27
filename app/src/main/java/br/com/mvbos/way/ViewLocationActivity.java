@@ -306,9 +306,7 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
 
     @Override
     public void onConnected(Bundle connectionHint) {
-        if (mRequestingLocationUpdates) {
-            startLocationUpdates();
-        }
+        startLocationUpdates();
         //myLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
     }
 
@@ -321,6 +319,7 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
     @Override
     public void onLocationChanged(Location location) {
         myLocation = location;
+        oldLocation = null;
         mLastUpdateTime = DateFormat.getTimeInstance().format(new Date());
         updateUI();
     }
@@ -752,6 +751,6 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
 
     @Override
     public void onConnectionFailed(ConnectionResult connectionResult) {
-        System.out.println(connectionResult);
+        //System.out.println(connectionResult);
     }
 }

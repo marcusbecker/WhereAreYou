@@ -1,6 +1,7 @@
 package br.com.mvbos.way.core;
 
 import java.io.Serializable;
+import java.text.DateFormat;
 import java.util.Date;
 
 /**
@@ -127,6 +128,10 @@ public class RequestData implements Serializable {
 
     public Date getLastUpdate() {
         return lastUpdate;
+    }
+
+    public String getLastUpdateDescription() {
+        return DateFormat.getTimeInstance().format(lastUpdate);
     }
 
     public void setLastUpdate(Date lastUpdate) {
