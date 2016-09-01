@@ -21,7 +21,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
@@ -139,8 +138,10 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
 
     private void updateUI() {
         oldLocation = null;
-        String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", myLocation.getLatitude(), myLocation.getLongitude());
-        textLocation.setText(s);
+        if (myLocation != null) {
+            String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", myLocation.getLatitude(), myLocation.getLongitude());
+            textLocation.setText(s);
+        }
     }
 
     private void updateValuesFromBundle(Bundle savedInstanceState) {
@@ -244,7 +245,7 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
             startLocationUpdates();
 
         } else if (!mGoogleApiClient.isConnected()) {
-            Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
+            //Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
         }
 
         if (locationsList.isEmpty() || way == null) {
@@ -577,15 +578,6 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
     @Override
     public void onStart() {
         super.onStart();
-
-        boolean a;
-        int status = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
-        if (ConnectionResult.SUCCESS == status) {
-            a = true;
-        } else {
-            GooglePlayServicesUtil.getErrorDialog(status, this, 0).show();
-            a = false;
-        }
 
         mGoogleApiClient.connect();
     }

@@ -27,21 +27,5 @@ dependencies {
     compile 'com.android.support:appcompat-v7:23.1.1'
     testCompile 'junit:junit:4.12'
     //compile 'com.google.android.gms:play-services-appindexing:8.4.0'
-    //compile 'com.google.android.gms:play-services-maps:8.3.0'
-    //compile 'com.google.android.gms:play-services-location:8.3.0'
-
-    /*compile "com.google.android.gms:play-services-base:8.4.0"
-    compile 'com.google.android.gms:play-services-maps:8.4.0'
-    compile 'com.google.maps.android:android-maps-utils:0.4.3'
     compile 'com.google.android.gms:play-services-location:8.4.0'
-*/
-
-    compile 'com.google.android.gms:play-services:6.5.87'
-
-    //compile 'com.google.android.gms:play-services-plus:8.1.0'
-    //compile 'com.google.android.gms:play-services-location:7.+'
-    //compile 'com.google.android.gms:play-services-maps:9.0.1'
-    //compile 'com.google.android.gms:play-services-location:9.0.1'
-    //compile 'com.google.android.gms:play-services-maps:8.4.0'
-    //compile 'com.google.android.gms:play-services-gcm:8.4.0'
 }
