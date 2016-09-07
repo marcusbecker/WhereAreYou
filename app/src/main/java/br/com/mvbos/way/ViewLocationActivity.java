@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.PersistableBundle;
 import android.provider.ContactsContract;
+import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.ContextMenu;
@@ -46,8 +47,7 @@ import br.com.mvbos.way.core.Way;
 
 public class ViewLocationActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener, HttpRequestHelperResult {
 
-    private static final long MIN_SECONDS = 5 * 60 * 1000;
-    private static final float MIN_METERS = 0; // 10000;
+    private static final long MIN_SECONDS = 2 * 60 * 1000;
     private static final int RS_REQ_GET_CONTACT = 1;
 
     private static final int HTTP_ID_SEND = 1;
@@ -81,8 +81,15 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
 
     private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
     //private final String path = "http://192.168.0.7/ondetatu/list_location.php";
-
     //private long startTime = 0;
+
+    private boolean mRequestingLocationUpdates;
+    private GoogleApiClient mGoogleApiClient;
+    private LocationRequest mLocationRequest;
+    private String mLastUpdateTime;
+    private boolean updateAll;
+
+    private SwipeRefreshLayout swipeContainer;
 
     Handler timerHandler = new Handler();
     Runnable timerRunnable = new Runnable() {
@@ -91,11 +98,11 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         public void run() {
             Log.i(ViewLocationActivity.class.getName(), "run timer");
 
-
             Map<String, String> param = new HashMap<>(5);
             param.put("str_0", "upchkreqloc");
             param.put("str_12", phoneNumber);
             param.put("str_11", "2215");
+            param.put("str_4", String.valueOf(updateAll));
 
             if (myLocation == null) {
                 myLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
@@ -114,59 +121,28 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
             HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_UPDATE, path, param, ViewLocationActivity.this);
             httpHelper.execute();
 
+            updateAll = false;
             timerHandler.postDelayed(this, DELAY_MILLIS);
         }
     };
-
-    private boolean mRequestingLocationUpdates;
-    private GoogleApiClient mGoogleApiClient;
-    private LocationRequest mLocationRequest;
-    private String mLastUpdateTime;
-
-    private void startLocationUpdates() {
-        mLocationRequest = LocationRequest.create()
-                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
-                .setInterval(MIN_SECONDS)
-                .setFastestInterval(1 * 1000);
-
-        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
-    }
-
-    private void stopLocationUpdates() {
-        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
-    }
-
-    private void updateUI() {
-        oldLocation = null;
-        if (myLocation != null) {
-            String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", myLocation.getLatitude(), myLocation.getLongitude());
-            textLocation.setText(s);
-        }
-    }
-
-    private void updateValuesFromBundle(Bundle savedInstanceState) {
-        if (savedInstanceState != null) {
-            if (savedInstanceState.keySet().contains(REQUESTING_LOCATION_UPDATES_KEY)) {
-                mRequestingLocationUpdates = savedInstanceState.getBoolean(REQUESTING_LOCATION_UPDATES_KEY);
-            }
-
-            if (savedInstanceState.keySet().contains(LOCATION_KEY)) {
-                myLocation = savedInstanceState.getParcelable(LOCATION_KEY);
-            }
-
-            if (savedInstanceState.keySet().contains(LAST_UPDATED_TIME_STRING_KEY)) {
-                mLastUpdateTime = savedInstanceState.getString(LAST_UPDATED_TIME_STRING_KEY);
-            }
-
-            updateUI();
-        }
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_location);
 
+        swipeContainer = (SwipeRefreshLayout) findViewById(R.id.swipeContainer);
+
+        swipeContainer.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                updateAll = true;
+                swipeContainer.setRefreshing(true);
+                timerHandler.postDelayed(timerRunnable, 0);
+            }
+        });
+
+        swipeContainer.setColorSchemeResources(android.R.color.holo_blue_bright);
 
         updateValuesFromBundle(savedInstanceState);
 
@@ -270,6 +246,9 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         super.onPause();
         stopLocationUpdates();
         timerHandler.removeCallbacks(timerRunnable);
+
+        way.setRequestDatas(locationsList);
+        Core.save(way, "list.way", this);
     }
 
     @Override
@@ -391,10 +370,48 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         }
     }
 
+    private void startLocationUpdates() {
+        mLocationRequest = LocationRequest.create()
+                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+                .setInterval(MIN_SECONDS)
+                .setFastestInterval(1 * 1000);
+
+        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+    }
+
+    private void stopLocationUpdates() {
+        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+    }
+
+    private void updateUI() {
+        oldLocation = null;
+        if (myLocation != null) {
+            String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", myLocation.getLatitude(), myLocation.getLongitude());
+            textLocation.setText(s);
+        }
+    }
+
+    private void updateValuesFromBundle(Bundle savedInstanceState) {
+        if (savedInstanceState != null) {
+            if (savedInstanceState.keySet().contains(REQUESTING_LOCATION_UPDATES_KEY)) {
+                mRequestingLocationUpdates = savedInstanceState.getBoolean(REQUESTING_LOCATION_UPDATES_KEY);
+            }
+
+            if (savedInstanceState.keySet().contains(LOCATION_KEY)) {
+                myLocation = savedInstanceState.getParcelable(LOCATION_KEY);
+            }
+
+            if (savedInstanceState.keySet().contains(LAST_UPDATED_TIME_STRING_KEY)) {
+                mLastUpdateTime = savedInstanceState.getString(LAST_UPDATED_TIME_STRING_KEY);
+            }
+
+            updateUI();
+        }
+    }
+
 
     private void openContactList() {
-        Uri uri = ContactsContract.Contacts.CONTENT_URI;
-        Intent intent = new Intent(Intent.ACTION_PICK, uri);
+        Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI);
         startActivityForResult(intent, RS_REQ_GET_CONTACT);
     }
 
@@ -559,7 +576,7 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         return null;
     }
 
-    private String sendRequestContactLocation(List<RequestData> contacts) throws Exception {
+    private void sendRequestContactLocation(List<RequestData> contacts) throws Exception {
         RequestData req = contacts.get(0);
 
         Map<String, String> param = new HashMap<>(5);
@@ -571,8 +588,6 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND_REQUEST, path, param, this);
         httpHelper.setExtraData(req);
         httpHelper.execute();
-
-        return null;
     }
 
     @Override
@@ -586,8 +601,6 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
     public void onStop() {
         super.onStop();
         mGoogleApiClient.disconnect();
-        way.setRequestDatas(locationsList);
-        Core.save(way, "list.way", this);
     }
 
     @Override
@@ -595,7 +608,7 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         JSONObject jsonResp = null;
 
         RequestData requestData = (RequestData) extraData;
-
+        swipeContainer.setRefreshing(false);
 
         if (error != null) {
             if (extraData != null) {
@@ -652,22 +665,32 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
                 JSONArray resp = jsonResp.getJSONArray("response");
 
                 for (int i = 0; i < resp.length(); i++) {
+                    update = true;
+                    RequestData rr = null;
                     JSONObject line = resp.getJSONObject(i);
 
                     for (RequestData r : locationsList) {
+
                         if (r.getToNumber() == line.getLong("from")) {
-
-                            update = true;
-
-                            r.setLatitude(line.getDouble("latitude"));
-                            r.setLongitude(line.getDouble("longitude"));
-                            r.setState(RequestData.State.SYNC);
-
+                            rr = r;
                             break;
                         }
                     }
-                }
 
+                    if (rr == null) {
+                        rr = new RequestData();
+                        rr.setFromNumber(phoneNumber);
+                        //rr.setToName(name);
+                        rr.setToNumber(line.getLong("from"));
+                        locationsList.add(rr);
+                    }
+
+                    rr.setLatitude(line.getDouble("latitude"));
+                    rr.setLongitude(line.getDouble("longitude"));
+                    rr.setLastUpdate(new Date());
+                    rr.setState(RequestData.State.SYNC);
+
+                }
 
                 JSONArray reqs = jsonResp.getJSONArray("requets");
 

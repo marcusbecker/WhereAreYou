@@ -38,6 +38,11 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(i);
             }
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
 
         way = Core.load("list.way", this);
         if (way != null) {
@@ -47,9 +52,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             way = new Way(getPhoneNumber());
         }
-
     }
-
 
     public String getPhoneNumber() {
         String phoneNumber;
