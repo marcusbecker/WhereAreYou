@@ -3,14 +3,13 @@ package br.com.mvbos.way;
 import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
-import android.location.Criteria;
 import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.PersistableBundle;
 import android.provider.ContactsContract;
+import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.ContextMenu;
@@ -22,10 +21,17 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,22 +45,25 @@ import br.com.mvbos.way.core.ItemRequestAdapter;
 import br.com.mvbos.way.core.RequestData;
 import br.com.mvbos.way.core.Way;
 
-public class ViewLocationActivity extends AppCompatActivity implements LocationListener, HttpRequestHelperResult {
+public class ViewLocationActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener, HttpRequestHelperResult {
 
-    private static final long MIN_SECONDS = 5 * 60 * 1000;
-    private static final float MIN_METERS = 0; // 10000;
+    private static final long MIN_SECONDS = 2 * 60 * 1000;
     private static final int RS_REQ_GET_CONTACT = 1;
 
     private static final int HTTP_ID_SEND = 1;
     private static final int HTTP_ID_UPDATE = 2;
     private static final int HTTP_ID_SEND_REQUEST = 3;
     private static final int HTTP_ID_ACCEPT = 4;
+    private static final int HTTP_ID_REMOVE = 5;
 
     public static final String URL_GOOGLE_MAPS = "http://maps.google.com/?q=%s,%s";
     public static final int DELAY_MILLIS = 75 * 1000;
+    private static final String REQUESTING_LOCATION_UPDATES_KEY = "REQUESTING_LOCATION_UPDATES_KEY";
+    private static final String LOCATION_KEY = "LOCATION_KEY";
+    private static final String LAST_UPDATED_TIME_STRING_KEY = "LAST_UPDATED_TIME_STRING_KEY";
+    public static final String PHONE_KEY = "2215";
 
 
-    private LocationManager locationManager;
     private String preferred;
 
     private TextView textLocation;
@@ -75,38 +84,31 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
 
     private final String path = "http://mvbos.com.br/ondetatu/list_location.php";
     //private final String path = "http://192.168.0.7/ondetatu/list_location.php";
-
     //private long startTime = 0;
+
+    private boolean mRequestingLocationUpdates;
+    private GoogleApiClient mGoogleApiClient;
+    private LocationRequest mLocationRequest;
+    private String mLastUpdateTime;
+    private boolean updateAll;
+
+    private SwipeRefreshLayout swipeContainer;
 
     Handler timerHandler = new Handler();
     Runnable timerRunnable = new Runnable() {
 
         @Override
         public void run() {
-            Log.i(ViewLocationActivity.class.getName(), "run timer");
-
+            Log.i(ViewLocationActivity.class.getName(), "run timer " + new Date());
 
             Map<String, String> param = new HashMap<>(5);
             param.put("str_0", "upchkreqloc");
             param.put("str_12", phoneNumber);
-            param.put("str_11", "2215");
+            param.put("str_11", PHONE_KEY);
+            param.put("str_4", String.valueOf(updateAll));
 
             if (myLocation == null) {
-                //locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, null);
-                myLocation = locationManager.getLastKnownLocation(preferred);
-
-                if (myLocation == null) {
-
-                    try {
-                        locationManager.requestSingleUpdate(preferred, ViewLocationActivity.this, null);
-                        // Waiting for the update
-                        //while (myLocation == null) ;
-
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-
-                }
+                myLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
             }
 
             if (myLocation != oldLocation) {
@@ -122,6 +124,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_UPDATE, path, param, ViewLocationActivity.this);
             httpHelper.execute();
 
+            updateAll = false;
             timerHandler.postDelayed(this, DELAY_MILLIS);
         }
     };
@@ -131,10 +134,31 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_location);
 
+        swipeContainer = (SwipeRefreshLayout) findViewById(R.id.swipeContainer);
+
+        swipeContainer.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                updateAll = true;
+                swipeContainer.setRefreshing(true);
+                timerHandler.postDelayed(timerRunnable, 0);
+            }
+        });
+
+        swipeContainer.setColorSchemeResources(android.R.color.holo_blue_bright);
+
+        updateValuesFromBundle(savedInstanceState);
+
+        if (mGoogleApiClient == null) {
+            mGoogleApiClient = new GoogleApiClient.Builder(this)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
+                    .build();
+        }
+
         way = (Way) getIntent().getSerializableExtra("way");
         phoneNumber = way.getNumber();
-
-        //mServiceIntent = new Intent(this, RequestDataService.class);
 
         textLocation = (TextView) findViewById(R.id.txtLatLong);
         textLocation.setText("No location avaliable.");
@@ -143,9 +167,10 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (locationManager != null) {
-                    Location location = locationManager.getLastKnownLocation(preferred);
-                    openMap(location.getLatitude(), location.getLongitude());
+                if (myLocation != null) {
+                    openMap(myLocation.getLatitude(), myLocation.getLongitude());
+                } else {
+                    Toast.makeText(ViewLocationActivity.this, "Sorry, location is unknown.", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -195,6 +220,13 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     protected void onResume() {
         super.onResume();
 
+        if (mGoogleApiClient.isConnected() && !mRequestingLocationUpdates) {
+            startLocationUpdates();
+
+        } else if (!mGoogleApiClient.isConnected()) {
+            //Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
+        }
+
         if (locationsList.isEmpty() || way == null) {
             if (way == null)
                 way = Core.load("list.way", this);
@@ -209,61 +241,32 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
             }
         }
 
-        //startService(mServiceIntent);
-
-        try {
-
-            if (locationManager == null) {
-                locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
-                Criteria c = new Criteria();
-                c.setAccuracy(Criteria.ACCURACY_FINE);
-                preferred = locationManager.getBestProvider(c, true);
-
-                if (preferred == null)
-                    preferred = locationManager.GPS_PROVIDER;
-
-                if (!locationManager.isProviderEnabled(preferred)) {
-                    Toast.makeText(ViewLocationActivity.this, "Please turn on your GPS.", Toast.LENGTH_SHORT).show();
-                }
-
-                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, this);
-                myLocation = locationManager.getLastKnownLocation(preferred);
-
-            } else {
-                locationManager.requestLocationUpdates(preferred, MIN_SECONDS, MIN_METERS, this);
-                myLocation = locationManager.getLastKnownLocation(preferred);
-            }
-
-        } catch (SecurityException e) {
-            e.printStackTrace();
-            Log.i(ViewLocationActivity.class.getName(), "is not Provider Enabled");
-        }
-
         timerHandler.postDelayed(timerRunnable, 0);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-
-        try {
-            //stopService(mServiceIntent);
-
-            if (locationManager != null) {
-                locationManager.removeUpdates(this);
-            }
-
-        } catch (SecurityException e) {
-            e.printStackTrace();
-        }
-
+        stopLocationUpdates();
         timerHandler.removeCallbacks(timerRunnable);
+
+        way.setRequestDatas(locationsList);
+        Core.save(way, "list.way", this);
     }
 
+    @Override
+    public void onSaveInstanceState(Bundle savedInstanceState, PersistableBundle
+            outPersistentState) {
+        savedInstanceState.putBoolean(REQUESTING_LOCATION_UPDATES_KEY, mRequestingLocationUpdates);
+        savedInstanceState.putParcelable(LOCATION_KEY, myLocation);
+        savedInstanceState.putString(LAST_UPDATED_TIME_STRING_KEY, mLastUpdateTime);
+
+        super.onSaveInstanceState(savedInstanceState, outPersistentState);
+    }
 
     @Override
-    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo
+            menuInfo) {
         super.onCreateContextMenu(menu, v, menuInfo);
 
         if (R.id.listView == v.getId()) {
@@ -285,14 +288,44 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
     }
 
     @Override
+    public void onConnected(Bundle connectionHint) {
+        startLocationUpdates();
+        //myLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+    }
+
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+        myLocation = location;
+        oldLocation = null;
+        mLastUpdateTime = DateFormat.getTimeInstance().format(new Date());
+        updateUI();
+    }
+
+
+    @Override
     public boolean onContextItemSelected(MenuItem item) {
 
         if ("Remove".equals(item.getTitle())) {
-            locationsList.remove(requestDataSelected);
-            updteItemListView(true);
+            if (RequestData.State.ERROR == requestDataSelected.getState()) {
+                removeRequestFromList(requestDataSelected);
 
-            way.setRequestDatas(locationsList);
-            Core.save(way, "list.way", this);
+            } else {
+                Map<String, String> param = new HashMap<>(5);
+                param.put("str_0", "remloc");
+                param.put("str_12", String.valueOf(requestDataSelected.getFromNumber()));
+                param.put("str_22", String.valueOf(requestDataSelected.getToNumber()));
+                param.put("str_11", requestDataSelected.getKey());
+
+                HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_REMOVE, path, param, this);
+                httpHelper.setExtraData(requestDataSelected);
+                httpHelper.execute();
+            }
 
         } else if ("Accept".equals(item.getTitle())) {
 
@@ -349,10 +382,48 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         }
     }
 
+    private void startLocationUpdates() {
+        mLocationRequest = LocationRequest.create()
+                .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+                .setInterval(MIN_SECONDS)
+                .setFastestInterval(1 * 1000);
+
+        LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+    }
+
+    private void stopLocationUpdates() {
+        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+    }
+
+    private void updateUI() {
+        oldLocation = null;
+        if (myLocation != null) {
+            String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", myLocation.getLatitude(), myLocation.getLongitude());
+            textLocation.setText(s);
+        }
+    }
+
+    private void updateValuesFromBundle(Bundle savedInstanceState) {
+        if (savedInstanceState != null) {
+            if (savedInstanceState.keySet().contains(REQUESTING_LOCATION_UPDATES_KEY)) {
+                mRequestingLocationUpdates = savedInstanceState.getBoolean(REQUESTING_LOCATION_UPDATES_KEY);
+            }
+
+            if (savedInstanceState.keySet().contains(LOCATION_KEY)) {
+                myLocation = savedInstanceState.getParcelable(LOCATION_KEY);
+            }
+
+            if (savedInstanceState.keySet().contains(LAST_UPDATED_TIME_STRING_KEY)) {
+                mLastUpdateTime = savedInstanceState.getString(LAST_UPDATED_TIME_STRING_KEY);
+            }
+
+            updateUI();
+        }
+    }
+
 
     private void openContactList() {
-        Uri uri = ContactsContract.Contacts.CONTENT_URI;
-        Intent intent = new Intent(Intent.ACTION_PICK, uri);
+        Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI);
         startActivityForResult(intent, RS_REQ_GET_CONTACT);
     }
 
@@ -517,56 +588,31 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         return null;
     }
 
-    private String sendRequestContactLocation(List<RequestData> contacts) throws Exception {
+    private void sendRequestContactLocation(List<RequestData> contacts) throws Exception {
         RequestData req = contacts.get(0);
 
         Map<String, String> param = new HashMap<>(5);
         param.put("str_0", "reqloc");
         param.put("str_12", String.valueOf(req.getFromNumber()));
-        param.put("str_11", "2215");
+        param.put("str_11", PHONE_KEY);
         param.put("str_22", String.valueOf(req.getToNumber()));
 
         HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND_REQUEST, path, param, this);
         httpHelper.setExtraData(req);
         httpHelper.execute();
-
-        return null;
-    }
-
-
-    @Override
-    public void onStatusChanged(String provider, int status, Bundle extras) {
-    }
-
-    @Override
-    public void onLocationChanged(Location location) {
-        myLocation = location;
-        oldLocation = null;
-        String s = String.format("Your location: Latitude %.4f, Longitude %.4f.", location.getLatitude(), location.getLongitude());
-        textLocation.setText(s);
-    }
-
-    @Override
-    public void onProviderEnabled(String provider) {
-
-    }
-
-    @Override
-    public void onProviderDisabled(String provider) {
-
     }
 
     @Override
     public void onStart() {
         super.onStart();
 
+        mGoogleApiClient.connect();
     }
 
     @Override
     public void onStop() {
         super.onStop();
-        way.setRequestDatas(locationsList);
-        Core.save(way, "list.way", this);
+        mGoogleApiClient.disconnect();
     }
 
     @Override
@@ -574,7 +620,7 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         JSONObject jsonResp = null;
 
         RequestData requestData = (RequestData) extraData;
-
+        swipeContainer.setRefreshing(false);
 
         if (error != null) {
             if (extraData != null) {
@@ -631,22 +677,37 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 JSONArray resp = jsonResp.getJSONArray("response");
 
                 for (int i = 0; i < resp.length(); i++) {
+                    update = true;
+                    RequestData rr = null;
                     JSONObject line = resp.getJSONObject(i);
 
                     for (RequestData r : locationsList) {
+
                         if (r.getToNumber() == line.getLong("from")) {
-
-                            update = true;
-
-                            r.setLatitude(line.getDouble("latitude"));
-                            r.setLongitude(line.getDouble("longitude"));
-                            r.setState(RequestData.State.SYNC);
-
+                            rr = r;
                             break;
                         }
                     }
-                }
 
+                    if (rr == null) {
+                        rr = new RequestData();
+                        rr.setFromNumber(phoneNumber);
+                        //rr.setToName(name);
+                        rr.setToNumber(line.getLong("from"));
+                        rr.setKey(PHONE_KEY);
+                        locationsList.add(rr);
+                    }
+
+                    if (line.getInt("state") == -1) {
+                        rr.setState(RequestData.State.CANCELED);
+                    } else {
+                        rr.setState(RequestData.State.SYNC);
+                    }
+
+                    rr.setLatitude(line.getDouble("latitude"));
+                    rr.setLongitude(line.getDouble("longitude"));
+                    rr.setLastUpdate(new Date());
+                }
 
                 JSONArray reqs = jsonResp.getJSONArray("requets");
 
@@ -705,9 +766,32 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
                 e.printStackTrace();
             }
 
+        } else if (id == HTTP_ID_REMOVE) {
+            try {
+                jsonResp = new JSONObject(response.toString());
+                JSONObject res = jsonResp.getJSONObject("response");
+                boolean success = res.getBoolean("success");
+
+                if (success) {
+                    removeRequestFromList(requestData);
+
+                } else {
+                    Toast.makeText(this, "Error to remove request.", Toast.LENGTH_LONG).show();
+                }
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
         }
     }
 
+    private void removeRequestFromList(RequestData requestData) {
+        locationsList.remove(requestData);
+        updteItemListView(true);
+
+        way.setRequestDatas(locationsList);
+        Core.save(way, "list.way", this);
+    }
 
     private void updteItemListView(boolean full) {
         if (full) {
@@ -721,5 +805,8 @@ public class ViewLocationActivity extends AppCompatActivity implements LocationL
         }
     }
 
-
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        //System.out.println(connectionResult);
+    }
 }

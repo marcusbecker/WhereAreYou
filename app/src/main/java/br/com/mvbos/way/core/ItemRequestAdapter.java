@@ -56,7 +56,7 @@ public class ItemRequestAdapter extends BaseAdapter {
         if (rd.getState() == RequestData.State.SEND) {
             v.setText(rd.isForeign() ? "Waiting for response..." : rd.getFormatedLocation());
         } else {
-            v.setText(rd.isForeign() ? rd.getLastUpdate().toString() : rd.getFormatedLocation());
+            v.setText(rd.isForeign() ? rd.getLastUpdateDescription() : rd.getFormatedLocation());
         }
 
         return view;
