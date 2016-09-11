@@ -102,7 +102,6 @@ public class HttpRequestHelper {
             writer.flush();
             writer.close();
 
-
             int responseCode = conn.getResponseCode();
 
             if (responseCode == HttpsURLConnection.HTTP_OK) {

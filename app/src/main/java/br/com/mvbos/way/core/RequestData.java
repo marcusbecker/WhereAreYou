@@ -9,7 +9,7 @@ import java.util.Date;
  */
 public class RequestData implements Serializable {
     public enum State {
-        WAITING, SEND, ACCEPTED, PENDING, ERROR, SYNC;
+        WAITING, SEND, ACCEPTED, PENDING, ERROR, SYNC, CANCELED;
     }
 
     public enum Type {

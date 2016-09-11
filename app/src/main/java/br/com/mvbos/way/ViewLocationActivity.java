@@ -54,12 +54,15 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
     private static final int HTTP_ID_UPDATE = 2;
     private static final int HTTP_ID_SEND_REQUEST = 3;
     private static final int HTTP_ID_ACCEPT = 4;
+    private static final int HTTP_ID_REMOVE = 5;
 
     public static final String URL_GOOGLE_MAPS = "http://maps.google.com/?q=%s,%s";
     public static final int DELAY_MILLIS = 75 * 1000;
     private static final String REQUESTING_LOCATION_UPDATES_KEY = "REQUESTING_LOCATION_UPDATES_KEY";
     private static final String LOCATION_KEY = "LOCATION_KEY";
     private static final String LAST_UPDATED_TIME_STRING_KEY = "LAST_UPDATED_TIME_STRING_KEY";
+    public static final String PHONE_KEY = "2215";
+
 
     private String preferred;
 
@@ -96,12 +99,12 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
 
         @Override
         public void run() {
-            Log.i(ViewLocationActivity.class.getName(), "run timer");
+            Log.i(ViewLocationActivity.class.getName(), "run timer " + new Date());
 
             Map<String, String> param = new HashMap<>(5);
             param.put("str_0", "upchkreqloc");
             param.put("str_12", phoneNumber);
-            param.put("str_11", "2215");
+            param.put("str_11", PHONE_KEY);
             param.put("str_4", String.valueOf(updateAll));
 
             if (myLocation == null) {
@@ -309,11 +312,20 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
     public boolean onContextItemSelected(MenuItem item) {
 
         if ("Remove".equals(item.getTitle())) {
-            locationsList.remove(requestDataSelected);
-            updteItemListView(true);
+            if (RequestData.State.ERROR == requestDataSelected.getState()) {
+                removeRequestFromList(requestDataSelected);
 
-            way.setRequestDatas(locationsList);
-            Core.save(way, "list.way", this);
+            } else {
+                Map<String, String> param = new HashMap<>(5);
+                param.put("str_0", "remloc");
+                param.put("str_12", String.valueOf(requestDataSelected.getFromNumber()));
+                param.put("str_22", String.valueOf(requestDataSelected.getToNumber()));
+                param.put("str_11", requestDataSelected.getKey());
+
+                HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_REMOVE, path, param, this);
+                httpHelper.setExtraData(requestDataSelected);
+                httpHelper.execute();
+            }
 
         } else if ("Accept".equals(item.getTitle())) {
 
@@ -582,7 +594,7 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
         Map<String, String> param = new HashMap<>(5);
         param.put("str_0", "reqloc");
         param.put("str_12", String.valueOf(req.getFromNumber()));
-        param.put("str_11", "2215");
+        param.put("str_11", PHONE_KEY);
         param.put("str_22", String.valueOf(req.getToNumber()));
 
         HttpRequestHelper httpHelper = new HttpRequestHelper(HTTP_ID_SEND_REQUEST, path, param, this);
@@ -682,14 +694,19 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
                         rr.setFromNumber(phoneNumber);
                         //rr.setToName(name);
                         rr.setToNumber(line.getLong("from"));
+                        rr.setKey(PHONE_KEY);
                         locationsList.add(rr);
+                    }
+
+                    if (line.getInt("state") == -1) {
+                        rr.setState(RequestData.State.CANCELED);
+                    } else {
+                        rr.setState(RequestData.State.SYNC);
                     }
 
                     rr.setLatitude(line.getDouble("latitude"));
                     rr.setLongitude(line.getDouble("longitude"));
                     rr.setLastUpdate(new Date());
-                    rr.setState(RequestData.State.SYNC);
-
                 }
 
                 JSONArray reqs = jsonResp.getJSONArray("requets");
@@ -749,7 +766,31 @@ public class ViewLocationActivity extends AppCompatActivity implements GoogleApi
                 e.printStackTrace();
             }
 
+        } else if (id == HTTP_ID_REMOVE) {
+            try {
+                jsonResp = new JSONObject(response.toString());
+                JSONObject res = jsonResp.getJSONObject("response");
+                boolean success = res.getBoolean("success");
+
+                if (success) {
+                    removeRequestFromList(requestData);
+
+                } else {
+                    Toast.makeText(this, "Error to remove request.", Toast.LENGTH_LONG).show();
+                }
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
         }
+    }
+
+    private void removeRequestFromList(RequestData requestData) {
+        locationsList.remove(requestData);
+        updteItemListView(true);
+
+        way.setRequestDatas(locationsList);
+        Core.save(way, "list.way", this);
     }
 
     private void updteItemListView(boolean full) {
